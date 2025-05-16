@@ -1,0 +1,30 @@
+#!/usr/bin/with-contenv bash
+set -e
+
+vecho () { if [ "${S6_VERBOSITY:-1}" -gt 0 ]; then echo "[$0] $@"; fi; }
+
+PROJECTDIR="/home/${S6_USER:-alpine}/project"; # set in Dockerfile
+DATADIR="${DATADIR:-/home/$S6_USER/project/data}";
+
+vecho "Ensure data directory exists.";
+mkdir -p \
+    "${DATADIR}" \
+    ;
+
+# replace the default user (node) in sudoers to S6_USER
+vecho "Ensure ${S6_USER} can use sudo.";
+sed -i \
+    -e "s/node/${S6_USER:-alpine}/g" \
+    /etc/sudoers;
+
+# fix permissions
+if [ -z "${UPTIMEKUMA_SKIP_PERMFIX}" ];
+then
+    vecho "Fixing permissions.";
+    find "${PROJECTDIR}" "${DATADIR}" \
+        \! -user ${S6_USER:-alpine} -exec \
+        chown --no-dereference \
+        ${S6_USER:-alpine}:${PGID:-1000} \
+        '{}' + \
+        ;
+fi;

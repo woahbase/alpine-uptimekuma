@@ -1,0 +1,16 @@
+#!/usr/bin/with-contenv bash
+set -e
+
+PROJECTDIR="/home/${S6_USER:-alpine}/project"; # set in Dockerfile
+DATADIR="${DATADIR:-/home/$S6_USER/project/data}";
+
+UPTIMEKUMA_ARGS="${UPTIMEKUMA_ARGS:- --data-dir=$DATADIR}";
+
+cd "${PROJECTDIR}" || exit 1;
+
+s6-setuidgid ${S6_USER:-alpine} \
+exec \
+    node \
+    server/server.js \
+    ${UPTIMEKUMA_ARGS} \
+    ;
