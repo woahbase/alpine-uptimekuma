@@ -148,7 +148,7 @@ debug : ## shell into container as user
 stop : ## stop container
 	docker stop -t 2 $(CNTNAME)
 
-test : regbinfmt
+test : inbinfmt
 test : ## run test command, i.e. TESTCMD
 	if [ -z "$(SKIP_TEST_$(ARCH))" ] && [ -z "$(SKIP_TEST)" ] && [ -z "$(SKIP_$(ARCH))" ]; \
 	then \
@@ -165,7 +165,7 @@ test : ## run test command, i.e. TESTCMD
 # -- }}}
 
 # {{{ -- image targets
-build : regbinfmt
+build : inbinfmt
 build : BUILDX := $(shell docker buildx version 1>/dev/null 2>&1 && echo 'present' || echo 'absent')
 build : ## build image
 	if [ -z "$(SKIP_$(ARCH))" ]; \
@@ -192,6 +192,8 @@ build : ## build image
 		echo "Skipping build: $(IMAGETAG)."; \
 	fi;
 
+clean : ARCH = *
+clean : unbinfmt
 clean : ## cleanup
 	docker images -a --format '{{.Repository}}:{{.Tag}}' \
 		| grep "$(ORGNAME)/$(REPONAME)" \
@@ -292,7 +294,6 @@ push_registry_% : ## push image to a different registry
 		echo "Skipping push: $(REGDSTTAG)."; \
 	fi;
 
-
 # to skip annotating, set SKIP_$(ARCH) to non-empty string, e.g. 1. default is unset.
 # manifest: SKIP_x86_64=
 # manifest: SKIP_aarch64=
@@ -300,25 +301,21 @@ push_registry_% : ## push image to a different registry
 # manifest: SKIP_armhf=
 # if tagname != latest, use $(ARCH)_$(TAGNAME) to annotate, else just $(ARCH)
 # manifest: TAGNAME = latest
+manifest: TAGSLIST ?= \
+	$(if $(SKIP_x86_64),,$(subst $(ARCH),x86_64$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
+	$(if $(SKIP_aarch64),,$(subst $(ARCH),aarch64$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
+	$(if $(SKIP_armv7l),,$(subst $(ARCH),armv7l$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
+	$(if $(SKIP_armhf),,$(subst $(ARCH),armhf$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
+	#
 manifest: ## create or update image(s) manifest
 	if [ -z "$(SKIP_ANNOTATE)" ]; \
 	then \
 		MANIFESTTAG=$(subst $(ARCH),$(TAGNAME),$(IMAGETAG)); \
 		docker manifest inspect $${MANIFESTTAG} > /dev/null 2>&1; \
 		if [ $$? != 0 ]; then docker manifest create \
-			$${MANIFESTTAG} \
-			$(if $(SKIP_x86_64),,$(subst $(ARCH),x86_64$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			$(if $(SKIP_aarch64),,$(subst $(ARCH),aarch64$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			$(if $(SKIP_armv7l),,$(subst $(ARCH),armv7l$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			$(if $(SKIP_armhf),,$(subst $(ARCH),armhf$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			;\
+			$${MANIFESTTAG} $(TAGSLIST); \
 		else docker manifest create --amend \
-			$${MANIFESTTAG} \
-			$(if $(SKIP_x86_64),,$(subst $(ARCH),x86_64$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			$(if $(SKIP_aarch64),,$(subst $(ARCH),aarch64$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			$(if $(SKIP_armv7l),,$(subst $(ARCH),armv7l$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			$(if $(SKIP_armhf),,$(subst $(ARCH),armhf$(if $(subst latest,,$(TAGNAME)),_$(TAGNAME),),$(IMAGETAG))) \
-			;\
+			$${MANIFESTTAG} $(TAGSLIST); \
 		fi; \
 	else \
 		echo "Skipping manifest: $(IMAGETAG)."; \
@@ -383,6 +380,20 @@ regbinfmt : ## register binfmt for multiarch on x86_64
 	fi;
 	#
 
+inbinfmt : BINFMTIMAGE ?= $(REGISTRY)/tonistiigi/binfmt
+inbinfmt : ## install binfmt for $(ARCH) on $(HOSTARCH)
+	if [ "$(ARCH)" != "$(HOSTARCH)" ]; then \
+		docker run --rm --privileged $(BINFMTIMAGE) --install "$(call get_binfmt_arch)"; \
+	fi;
+	#
+# unbinfmt : ARCH ?= *# to uninstall all emulators
+unbinfmt : BINFMTIMAGE ?= $(REGISTRY)/tonistiigi/binfmt
+unbinfmt : ## uninstall binfmt for $(ARCH) on $(HOSTARCH)
+	if [ "$(ARCH)" != "$(HOSTARCH)" ]; then \
+		docker run --rm --privileged $(BINFMTIMAGE) --uninstall "$(call get_binfmt_arch)"; \
+	fi;
+	#
+
 help : ## show this help
 	@sed -ne '/@sed/!s/## /|/p' $(MAKEFILE_LIST) | sed -e's/\W*:\W*=/:/g' | column -et -c 3 -s ':|?=' #| sort -h
 # -- }}}
@@ -420,6 +431,18 @@ MANIFEST_PLATFORM_MAP := \
 # $1 = ARCH
 define get_manifest_platform
 $(shell case "$(1)" in $(MANIFEST_PLATFORM_MAP) esac)
+endef
+
+# maps binfmt architecture to install for ARCH
+BINFMT_ARCH_MAP := \
+	'aarch64'    ) echo -n 'arm64'   ;; \
+	'armhf'      ) echo -n 'arm'     ;; \
+	'armv7l'     ) echo -n 'arm'     ;; \
+	'x86_64'     ) echo -n 'amd64'   ;; \
+	*            ) echo -n '*'       ;; \
+    #
+define get_binfmt_arch
+$(shell case "$(ARCH)" in $(BINFMT_ARCH_MAP) esac)
 endef
 
 # gets latest release version from github
