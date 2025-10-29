@@ -11,14 +11,19 @@ mkdir -p \
     "${DATADIR}" \
     ;
 
-# replace the default user (node) in sudoers to S6_USER
-vecho "Ensure ${S6_USER} can use sudo.";
-sed -i \
-    -e "s/node/${S6_USER:-alpine}/g" \
-    /etc/sudoers;
+if [ -z "${UPTIMEKUMA_SKIP_SUDOFIX}" ] \
+&& [ "X${EUID}" == "X0" ]; # requires root
+then
+    # replace the default user (node) in sudoers to S6_USER
+    vecho "Ensure ${S6_USER} can use sudo.";
+    sed -i \
+        -e "s/node/${S6_USER:-alpine}/g" \
+        /etc/sudoers;
+fi;
 
 # fix permissions
-if [ -z "${UPTIMEKUMA_SKIP_PERMFIX}" ];
+if [ -z "${UPTIMEKUMA_SKIP_PERMFIX}" ] \
+&& [ "X${EUID}" == "X0" ]; # requires root
 then
     vecho "Fixing permissions.";
     find "${PROJECTDIR}" "${DATADIR}" \
